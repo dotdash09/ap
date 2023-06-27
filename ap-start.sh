@@ -7,6 +7,7 @@ if [ ! -w "/sys" ] ; then
 fi
 
 # Default values
+true ${INT_INTERFACE:=enp1s0}
 true ${WIRED_INTERFACE:=enx705dccfecf80}
 true ${WIRED_SUBNET:=192.168.84.0}
 true ${WIRED_AP_ADDR:=192.168.84.1}
@@ -22,6 +23,7 @@ true ${HT_CAPAB:=[HT40-][SHORT-GI-20][SHORT-GI-40]}
 true ${MODE:=host}
 true ${DNS1:=219.250.36.130}
 true ${DNS2:=210.220.163.82}
+
 
 # Attach interface to container in guest mode
 if [ "$MODE" == "guest"  ]; then
@@ -92,54 +94,40 @@ done
 cat /proc/sys/net/ipv4/ip_dynaddr 
 cat /proc/sys/net/ipv4/ip_forward
 
-if [ "${OUTGOINGS}" ] ; then
-   ints="$(sed 's/,\+/ /g' <<<"${OUTGOINGS}")"
-   for int in ${ints}
-   do
-      echo "Setting iptables for outgoing traffics on ${int}..."
-      iptables -t nat -D POSTROUTING -s ${WIRELESS_SUBNET}/24 -o ${int} -j MASQUERADE > /dev/null 2>&1 || true
-      iptables -t nat -A POSTROUTING -s ${WIRELESS_SUBNET}/24 -o ${int} -j MASQUERADE
+echo "Setting iptables for outgoing traffics on ${INT_INTERFACE}..."
 
-      iptables -D FORWARD -i ${int} -o ${WIRELESS_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT > /dev/null 2>&1 || true
-      iptables -A FORWARD -i ${int} -o ${WIRELESS_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
+# wireless setting
+iptables -t nat -D POSTROUTING -s ${WIRELESS_SUBNET}/24 -o ${INT_INTERFACE} -j MASQUERADE > /dev/null 2>&1 || true
+iptables -t nat -A POSTROUTING -s ${WIRELESS_SUBNET}/24 -o ${INT_INTERFACE} -j MASQUERADE
 
-      iptables -D FORWARD -i ${WIRELESS_INTERFACE} -o ${int} -j ACCEPT > /dev/null 2>&1 || true
-      iptables -A FORWARD -i ${WIRELESS_INTERFACE} -o ${int} -j ACCEPT
+iptables -D FORWARD -i ${INT_INTERFACE} -o ${WIRELESS_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT > /dev/null 2>&1 || true
+iptables -A FORWARD -i ${INT_INTERFACE} -o ${WIRELESS_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-      # wired setting
-      iptables -t nat -A POSTROUTING -o ${int} -j MASQUERADE
-      iptables -A FORWARD -i ${int} -o ${WIRED_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
-      iptables -A FORWARD -i ${WIRED_INTERFACE} -o ${int} -j ACCEPT      
-   done
-else
-   echo "Setting iptables for outgoing traffics on all interfaces..."
-   iptables -t nat -D POSTROUTING -s ${WIRELESS_SUBNET}/24 -j MASQUERADE > /dev/null 2>&1 || true
-   iptables -t nat -A POSTROUTING -s ${WIRELESS_SUBNET}/24 -j MASQUERADE
+iptables -D FORWARD -i ${WIRELESS_INTERFACE} -o ${INT_INTERFACE} -j ACCEPT > /dev/null 2>&1 || true
+iptables -A FORWARD -i ${WIRELESS_INTERFACE} -o ${INT_INTERFACE} -j ACCEPT
 
-   iptables -D FORWARD -o ${WIRELESS_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT > /dev/null 2>&1 || true
-   iptables -A FORWARD -o ${WIRELESS_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-   iptables -D FORWARD -i ${WIRELESS_INTERFACE} -j ACCEPT > /dev/null 2>&1 || true
-   iptables -A FORWARD -i ${WIRELESS_INTERFACE} -j ACCEPT
-fi
+# wired setting
+iptables -t nat -A POSTROUTING -o ${INT_INTERFACE} -j MASQUERADE
+iptables -A FORWARD -i ${INT_INTERFACE} -o ${WIRED_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -i ${WIRED_INTERFACE} -o ${INT_INTERFACE} -j ACCEPT
 
 echo "Configuring DHCP server .."
 
 cat > "/etc/dhcp/dhcpd.conf" <<EOF
 #wired
-option domain-name-servers ${DNS1}, ${DNS2};
-option subnet-mask 255.255.255.0;
 subnet ${WIRED_SUBNET} netmask 255.255.255.0 {
   range 192.168.84.100 192.168.84.200;
   option routers ${WIRED_AP_ADDR};
+  option domain-name-servers ${DNS1}, ${DNS2};
+  option subnet-mask 255.255.255.0;
 }
 
 #wireless
-option domain-name-servers ${DNS1}, ${DNS2};
-option subnet-mask 255.255.255.0;
 subnet ${WIRELESS_SUBNET} netmask 255.255.255.0 {
   range 192.168.85.100 192.168.85.200;
   option routers ${WIRELESS_AP_ADDR};
+  option domain-name-servers ${DNS1}, ${DNS2};
+  option subnet-mask 255.255.255.0;
 }
 EOF
 
